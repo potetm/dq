@@ -2,9 +2,8 @@
  :dev-http {8008 {:host "localhost"
                   :roots ["dev-resources"
                           "target/public"]}}
+ :source-paths ["src" "dev"]
  :builds {:dq {:target :browser
                :output-dir "target/public/js"
-               :modules {:main {}}}
-          :test {:target :browser-teset
-                 :test-dir "target/test"
-                 :runner-ns com.potetm.dq.dev}}}
+               :modules {:main {:entries [com.potetm.dq
+                                          com.potetm.dq.dev]}}}}}

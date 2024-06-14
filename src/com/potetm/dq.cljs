@@ -22,60 +22,60 @@
             qs)))
 
 
-(defn push! [{w ::write :as settings} qname msg]
+(defn push-batch! [{w ::write :as settings} qname msgs]
   (let [qname (name qname)]
     (pq/js-await [db (idb/db settings)]
       (let [tx (idb/tx db
                        #js[qname]
                        "readwrite")]
-        (idb/put (idb/obj-store tx qname)
-                 #js{"msg" (w msg)
-                     "try-num" 0})))))
+        (js/Promise.all
+          (into-array
+            (map (fn [msg]
+                   (idb/put (idb/obj-store tx qname)
+                            #js{"msg" (w msg)
+                                "try-num" 0}))
+                 msgs)))))))
 
 
-(defn receive!
-  ([settings qname]
-   (.then (receive! settings qname 1)
-          (fn [[v]]
-            v)))
-  ([{r ::read :as settings} qname n]
-   (let [qname (name qname)
-         ifq (in-flight-q qname)]
-     (pq/js-await [db (idb/db settings)]
-       (let [tx (idb/tx db
-                        #js[qname ifq]
-                        "readwrite")
-             q-os (idb/obj-store tx qname)
-             ifq-os (idb/obj-store tx ifq)]
-         (pq/js-await [vs (idb/get-all q-os
-                                       nil
-                                       n)]
-           (when (seq vs)
-             (js/Promise.all
-               (.map vs
-                     (fn [v]
-                       (let [tn (inc (obj/get v "try-num"))]
-                         (pq/js-await [_ (idb/put ifq-os (doto v
-                                                           (obj/set "try-num"
-                                                                    tn)))
-                                       _ (idb/del q-os (obj/get v "id"))]
-                           (with-meta (r (obj/get v "msg"))
-                                      {::id (obj/get v "id")
-                                       ::try-num tn})))))))))))))
+(defn push! [settings qname msg]
+  (push-batch! settings
+               qname
+               [msg]))
 
 
-(defn ack! [settings qname msg]
+(defn receive-batch! [{r ::read :as settings} qname n]
   (let [qname (name qname)
         ifq (in-flight-q qname)]
     (pq/js-await [db (idb/db settings)]
       (let [tx (idb/tx db
                        #js[qname ifq]
                        "readwrite")
+            q-os (idb/obj-store tx qname)
             ifq-os (idb/obj-store tx ifq)]
-        (idb/del ifq-os (::id (meta msg)))))))
+        (pq/js-await [vs (idb/get-all q-os
+                                      nil
+                                      n)]
+          (when (seq vs)
+            (js/Promise.all
+              (.map vs
+                    (fn [v]
+                      (let [tn (inc (obj/get v "try-num"))]
+                        (pq/js-await [_ (idb/put ifq-os (doto v
+                                                          (obj/set "try-num"
+                                                                   tn)))
+                                      _ (idb/del q-os (obj/get v "id"))]
+                          (with-meta (r (obj/get v "msg"))
+                                     {::id (obj/get v "id")
+                                      ::try-num tn}))))))))))))
 
 
-(defn ack-all! [settings qname msgs]
+(defn receive! [settings qname]
+  (.then (receive-batch! settings qname 1)
+         (fn [[v]]
+           v)))
+
+
+(defn ack-batch! [settings qname msgs]
   (let [qname (name qname)
         ifq (in-flight-q qname)]
     (pq/js-await [db (idb/db settings)]
@@ -89,7 +89,15 @@
                             msgs)))))))
 
 
-(defn fail! [{w ::write :as settings} qname msg]
+(defn ack! [settings qname msg]
+  (.then (ack-batch! settings
+                     qname
+                     [msg])
+         (fn [[v]]
+           v)))
+
+
+(defn fail-batch! [{w ::write :as settings} qname msgs]
   (let [qname (name qname)
         ifq (in-flight-q qname)]
     (pq/js-await [db (idb/db settings)]
@@ -97,59 +105,63 @@
                        #js[qname ifq]
                        "readwrite")
             q-os (idb/obj-store tx qname)
-            ifq-os (idb/obj-store tx ifq)
-            {k ::id
-             tn ::try-num} (meta msg)]
-        (pq/js-await [_ (idb/put q-os
-                                 #js{"id" k
-                                     "try-num" tn
-                                     "msg" (w msg)})]
-          (idb/del ifq-os k))))))
+            ifq-os (idb/obj-store tx ifq)]
+        (pq/js-await [_ (js/Promise.all
+                          (int-array (mapv (fn [m]
+                                             (let [met (meta m)]
+                                               (idb/put q-os
+                                                        #js{"msg" (w m)
+                                                            "id" (::id met)
+                                                            "try-num" (::try-num met)})))
+                                           msgs)))]
+          (js/Promise.all
+            (into-array (mapv (fn [m]
+                                (idb/del ifq-os
+                                         (::id (meta m))))
+                              msgs))))))))
 
 
-(defn fail-all!
-  ([settings qname]
-   (let [qname (name qname)
-         ifq (in-flight-q qname)]
-     (pq/js-await [db (idb/db settings)]
-       (let [tx (idb/tx db
-                        #js[qname ifq]
-                        "readwrite")
-             q-os (idb/obj-store tx qname)
-             ifq-os (idb/obj-store tx ifq)]
-         (pq/js-await [msgs (idb/get-all ifq-os)
-                       _ (js/Promise.all
-                           (.map msgs
-                                 (fn [m]
-                                   (idb/put q-os
-                                            m))))]
-           (js/Promise.all
-             (.map msgs
-                   (fn [m]
-                     (idb/del ifq-os
-                              (obj/get m "id"))))))))))
-  ([{w ::write :as settings} qname msgs]
-   (let [qname (name qname)
-         ifq (in-flight-q qname)]
-     (pq/js-await [db (idb/db settings)]
-       (let [tx (idb/tx db
-                        #js[qname ifq]
-                        "readwrite")
-             q-os (idb/obj-store tx qname)
-             ifq-os (idb/obj-store tx ifq)]
-         (pq/js-await [_ (js/Promise.all
-                           (int-array (mapv (fn [m]
-                                              (let [met (meta m)]
-                                                (idb/put q-os
-                                                         #js{"msg" (w m)
-                                                             "id" (::id met)
-                                                             "try-num" (::try-num met)})))
-                                            msgs)))]
-           (js/Promise.all
-             (into-array (mapv (fn [m]
-                                 (idb/del ifq-os
-                                          (::id (meta m))))
-                               msgs)))))))))
+(defn fail! [settings qname msg]
+  (.then (fail-batch! settings
+                      qname
+                      [msg])
+         (fn [[v]]
+           v)))
+
+
+(defn fail-all! [settings qname]
+  (let [qname (name qname)
+        ifq (in-flight-q qname)]
+    (pq/js-await [db (idb/db settings)]
+      (let [tx (idb/tx db
+                       #js[qname ifq]
+                       "readwrite")
+            q-os (idb/obj-store tx qname)
+            ifq-os (idb/obj-store tx ifq)]
+        (pq/js-await [msgs (idb/get-all ifq-os)
+                      _ (js/Promise.all
+                          (.map msgs
+                                (fn [m]
+                                  (idb/put q-os
+                                           m))))]
+          (js/Promise.all
+            (.map msgs
+                  (fn [m]
+                    (idb/del ifq-os
+                             (obj/get m "id"))))))))))
+
+
+(defn truncate! [settings qname]
+  (js/Promise.
+    (fn [yes no]
+      (pq/js-await [db (idb/db settings)]
+        (let [qname (name qname)
+              tx (idb/tx db
+                         #js[qname]
+                         "readwrite")
+              q-os (idb/obj-store tx qname)
+              req (.clear q-os)]
+          (idb/promise-handlers yes no req))))))
 
 
 (comment
@@ -184,10 +196,10 @@
          (fn [v]
            (js/console.log v)))
 
-  (.then (fail! "local-sync" @msg)
+  (.then (fail! settings
+                :qname/local-sync @msg)
          (fn [v]
            (js/console.log v)))
 
-  (fail-all! "local-sync")
   )
 

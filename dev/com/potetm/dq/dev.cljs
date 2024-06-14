@@ -2,6 +2,7 @@
   (:require
     [cljs.test :as t]
     [cljs-test-display.core :as ctd]
+    [com.potetm.dq-test]
     [shadow.dom :as dom]))
 
 (defn run []

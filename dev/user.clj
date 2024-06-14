@@ -22,12 +22,14 @@
     (shadow/stop-worker :dq))
   (shadow-server/stop!))
 
+(defn refresh []
+  (stop)
+  (clean)
+  (start))
 
 (comment
-  (clean)
-  (start)
-  (stop)
-  (shadow/test)
+  (refresh)
+
   (shadow/repl :dq)
   (shadow/watch-set-autobuild! :dq false)
   (shadow/watch-set-autobuild! :dq true)

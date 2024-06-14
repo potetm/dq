@@ -33,7 +33,6 @@
            s ::dq/schema}]
   (js/Promise.
     (fn [yes no]
-      (js/console.log dbn)
       (let [req (js/indexedDB.open dbn 1)]
         (.addEventListener req
                            "upgradeneeded"
