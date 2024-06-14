@@ -115,3 +115,10 @@
     (fn [yes no]
       (let [req (.delete os id)]
         (promise-handlers yes no req)))))
+
+
+(defn clear [os]
+  (js/Promise.
+    (fn [yes no]
+      (let [req (.clear os)]
+        (promise-handlers yes no req)))))

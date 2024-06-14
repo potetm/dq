@@ -49,6 +49,16 @@
                                :qname/local-sync
                                v)]))
     )
+  (dev/time-promise-ms 100
+    (dq/js-await [_ (dq/push! dqt/edn-settings
+                              :qname/local-sync
+                              {:foo :bar})
+                  v (dq/receive! dqt/edn-settings
+                                 :qname/local-sync)]
+      (dq/js-await [_ (dq/ack! dqt/edn-settings
+                               :qname/local-sync
+                               v)]))
+    )
 
   (let [msgs (repeat 10 {:foo :bar})
         qname (name "local-sync")]

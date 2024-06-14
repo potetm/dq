@@ -2,12 +2,22 @@
 
 A fast, durable, async queue for the browser backed by
 [IndexedDB](https://developer.mozilla.org/en-US/docs/Web/API/IndexedDB_API).
-Guarantees:
+Features:
 
-* Messages will not be lost (even after page refresh)<sup>†</sup>
-* Messages will be delivered in order
+* Ordered delivery
     * Retries will be delivered prior to new messages
-* Messages will be delivered at least once
+* At least once or exactly once delivery
+* "relaxed" durability by default
+    * Optional ["strict"](https://developer.mozilla.org/en-US/docs/Web/API/IDBDatabase/transaction#options) durability
+* Zero dependencies
+* Promise-based API
+    * No core.async, no dependencies, but integrates with core.async easily
+
+## Use Cases
+
+* Interacting with a Web Worker
+* Immediate, durable writes that you later sync to the server in the background
+* Any event-based activity where you don't want to lose data due to a browser refresh
 
 ## Examples
 
@@ -21,15 +31,22 @@ Using the provided `js-await` macro:
      ::dq/db-name "testdb"
      ::dq/queues [{::dq/queue-name :qname/local-sync}]}))
 
-(dq/js-await [_ (dq/push! settings
-                          :qname/local-sync
-                          {:foo :bar})
-              v (dq/receive! settings
-                             :qname/local-sync)]
-  (dq/js-await [_ (dq/ack! settings
-                           :qname/local-sync
-                           v)]
-    (js/console.log "All done!")))
+
+(js-await [_ (dq/push! settings
+                       :qname/local-sync
+                       {:foo :bar})
+           msg (dq/receive! settings
+                            :qname/local-sync)
+           _ (do-async-stuff msg)]
+  (do-sync-stuff msg)
+  (js-await [_ (dq/ack! settings
+                        :qname/local-sync
+                        msg)]
+    (js/console.log "All done!"))
+  (catch error
+         (dq/fail! settings
+                   :qname/local-sync
+                   msg)))
 ```
 
 
@@ -47,11 +64,18 @@ Using core.async (and the [`core.async.interop/<p!` macro](https://clojurescript
   (<p! (dq/push! settings
                  :qname/local-sync
                  {:foo :bar}))
-  (let [v (<p! (dq/receive! settings
-                            :qname/local-sync))]
-    (dq/ack! settings
-             :qname/local-sync
-             v)))
+  (let [msg (<p! (dq/receive! settings
+                              :qname/local-sync))]
+    (try
+      (<! (do-async-stuff msg))
+      (do-sync-stuff msg)
+      (dq/ack! settings
+               :qname/local-sync
+               v)
+      (catch js/Error e
+        (dq/fail! settings
+                  :qname/local-sync
+                  msg)))))
 ```
 
 ## Settings
@@ -62,9 +86,42 @@ Using core.async (and the [`core.async.interop/<p!` macro](https://clojurescript
 * `::dq/queue-name` - A keyword name for your queue
 * `::dq/tx-opts` - A Clojurescript hashmap of [Transaction Options](https://developer.mozilla.org/en-US/docs/Web/API/IDBDatabase/transaction#options) (e.g. `{"durability" "strict"}` or `{"durability" "default"}`
 
-<sup>†</sup> The default behavior leaves a small, but non-zero, chance of data
-loss. You probably don't need to worry about this, but if it's critical that
-_nothing_ is lost, I have good news! If you use `::dq/tx-opts {"durability" "strict"}`. See the [MDN
-site](https://developer.mozilla.org/en-US/docs/Web/API/IDBDatabase/transaction#options),
-and the related [Chrome Status
-Feature](https://chromestatus.com/feature/5730701489995776) for details.
+## Usage Notes
+### Durability
+The default behavior leaves a small-but-non-zero chance of data loss. You
+probably don't need to worry about this, but if it's critical that _nothing_ is
+lost, I have good news! You can use `::dq/tx-opts {"durability" "strict"}`. See
+the [MDN site](https://developer.mozilla.org/en-US/docs/Web/API/IDBDatabase/transaction#options),
+and the related [Chrome Status Feature](https://chromestatus.com/feature/5730701489995776) for details.
+
+My informal testing shows that there's a ~20x performance improvement when using
+relaxed durability vs strict durability. (About 1ms vs 20ms for a full push, receive,
+ack cycle.) However, this will primarily affect _throughput_ rather than UI
+latency, because the fsync to disk happens in the OS layer, not the browser. If
+durability matters at all, you might as well try it with strict durability and
+only relax it after the need becomes clear.
+
+### Metadata
+DQ uses metadata on messages returned from `receive!` to track an internal
+identifier and retry counts. This means that you _must_ use the _original_
+message for calls to `ack!` or `fail!`. While this is a bit of a "gotcha," in
+practice, it's not at all onerous given the fact that Clojurescript data
+structures are immutable and queue consumer code always follows a pattern of:
+
+```clj
+(while true
+  (let [msg (receive!)]
+    (do-stuff msg)
+    (ack! msg)))
+```
+
+If you want to know how many times a message has been retried, you can do:
+
+```clj
+(::dq/try-num (meta msg))
+```
+
+### Consumer startup
+When starting a consumer, it's recommended that you call `dq/fail-all!`
+before dropping into your consumer loop. This will clear out any un-acked
+messages from your previous window.

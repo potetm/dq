@@ -10,7 +10,10 @@
   (str qname "-in-flight"))
 
 
-(defn compile-settings [{qs ::queues :as s}]
+(defn compile-settings
+  "De-sugar settings hashmap. This is primarily here to keep the
+  com.potetm.indexeddb namespace completely generic."
+  [{qs ::queues :as s}]
   (assoc s
     ::schema
     (into {}
@@ -89,9 +92,10 @@
                                                                             (obj/set "try-num"
                                                                                      tn)))
                                                         _ (idb/del q-os (obj/get v "id"))]
-                                            (with-meta (r (obj/get v "msg"))
-                                                       {::id (obj/get v "id")
-                                                        ::try-num tn}))))))]
+                                            (vary-meta (r (obj/get v "msg"))
+                                                       assoc
+                                                       ::id (obj/get v "id")
+                                                       ::try-num tn))))))]
               (.then p
                      (fn [_]
                        ret)))))))))
@@ -168,7 +172,10 @@
            v)))
 
 
-(defn fail-all! [settings qname]
+(defn fail-all!
+  "Fail all in-flight messages. Useful when starting a new process that might
+  have left messages hanging."
+  [settings qname]
   (let [sn (store-name settings
                        qname)
         ifq (in-flight-q sn)]
@@ -196,23 +203,25 @@
                    ret)))))))
 
 
-(defn truncate! [settings qname]
-  (let [qname (store-name settings
-                          qname)]
+(defn truncate!
+  "Delete all messages. Primarily here to facilitate testing."
+  [settings qname]
+  (let [sn (store-name settings
+                       qname)
+        ifq (in-flight-q sn)]
     (dq/js-await [db (idb/db settings)]
       (let [[tx p] (idb/tx db
-                           #js[qname]
+                           #js[sn ifq]
                            "readwrite"
                            (tx-opts settings
                                     qname))
-            q-os (idb/obj-store tx qname)]
-        (dq/js-await [ret (js/Promise.
-                            (fn [yes no]
-                              (let [req (.clear q-os)]
-                                (idb/promise-handlers yes no req))))]
+            q-os (idb/obj-store tx sn)
+            ifq-os (idb/obj-store tx ifq)]
+        (dq/js-await [ret (idb/clear q-os)
+                      ret' (idb/clear ifq-os)]
           (.then p
                  (fn [_]
-                   ret)))))))
+                   [ret ret'])))))))
 
 
 (comment
