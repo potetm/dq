@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+
+cd "$(dirname "$0")"/..
+
+clj \
+  -M:dev \
+  -m nrepl.cmdline \
+  --middleware "[shadow.cljs.devtools.server.nrepl/middleware]"

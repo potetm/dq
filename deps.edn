@@ -1,0 +1,8 @@
+{:paths ["src"
+         "resources"]
+ :deps {org.clojure/clojure {:mvn/version "1.11.3"}
+        org.clojure/clojurescript {:mvn/version "1.11.132"}}
+ :aliases {:dev {:extra-paths ["dev"]
+                 :extra-deps {nrepl/nrepl {:mvn/version "1.1.2"}
+                              thheller/shadow-cljs {:mvn/version "2.28.7"}
+                              com.cognitect/transit-cljs {:mvn/version "0.8.280"}}}}}

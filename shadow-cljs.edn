@@ -1,0 +1,10 @@
+{:deps {:aliases [:dev]}
+ :dev-http {8008 {:host "localhost"
+                  :roots ["dev-resources"
+                          "target/public"]}}
+ :builds {:dq {:target :browser
+               :output-dir "target/public/js"
+               :modules {:main {}}}
+          :test {:target :browser-teset
+                 :test-dir "target/test"
+                 :runner-ns com.potetm.dq.dev}}}
