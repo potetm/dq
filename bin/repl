@@ -5,6 +5,6 @@ set -Eeuo pipefail
 cd "$(dirname "$0")"/..
 
 clj \
-  -M:dev \
+  -M:dev:build \
   -m nrepl.cmdline \
   --middleware "[shadow.cljs.devtools.server.nrepl/middleware]"
