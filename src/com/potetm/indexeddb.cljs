@@ -30,7 +30,7 @@
 
 
 (defn db [{dbn ::dq/db-name
-           s ::dq/schema}]
+           schema ::dq/schema}]
   (js/Promise.
     (fn [yes no]
       (let [req (js/indexedDB.open dbn 1)]
@@ -38,8 +38,9 @@
                            "upgradeneeded"
                            (fn []
                              (let [db (.-result req)]
-                               (doseq [{sn :store/name
-                                        opts :store/opts} s]
+                               (doseq [[_qn stores] schema
+                                       {sn :store/name
+                                        opts :store/opts} stores]
                                  (when-not (.contains (.-objectStoreNames db)
                                                       sn)
                                    (.createObjectStore db
@@ -48,8 +49,23 @@
         (promise-handlers yes no req)))))
 
 
-(defn tx [db store-name mode]
-  (.transaction db store-name mode))
+(defn tx
+  ([db store-name mode]
+   (tx db store-name mode nil))
+  ([db store-name mode options]
+   (let [t (.transaction db store-name mode options)]
+     [t
+      (js/Promise.
+        (fn [yes no]
+          (.addEventListener t
+                             "complete"
+                             (fn [e]
+                               (yes e)))
+          (.addEventListener t
+                             "error"
+                             (fn [e]
+                               (no (ex-info "Error opening DB"
+                                            {::error e}))))))])))
 
 
 (defn obj-store [tx store-name]

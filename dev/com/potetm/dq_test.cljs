@@ -16,6 +16,15 @@
      ::dq/queues [{::dq/queue-name :qname/local-sync}]}))
 
 
+(def edn-settings:strict
+  (dq/compile-settings
+    {::dq/read edn/read-string
+     ::dq/write pr-str
+     ::dq/db-name "testdb"
+     ::dq/queues [{::dq/queue-name :qname/local-sync
+                   ::dq/tx-opts {"durability" "strict"}}]}))
+
+
 (defn del-db [db-name]
   (js/Promise.
     (fn [yes no]
@@ -26,9 +35,9 @@
 (defn get-all [settings qname]
   (dq/js-await [db (idb/db settings)]
     (let [qname (name qname)
-          tx (idb/tx db
-                     #js[qname]
-                     "readonly")
+          [tx _p] (idb/tx db
+                          #js[qname]
+                          "readonly")
           q-os (idb/obj-store tx qname)]
       (idb/get-all q-os))))
 
@@ -54,6 +63,24 @@
                                  :qname/local-sync
                                  v)]
           (done))))))
+
+
+(deftest hello:strict
+  (testing "it works!"
+    (async done
+      (dq/js-await [_ (dq/push! edn-settings:strict
+                                :qname/local-sync
+                                {:foo :bar})
+                    v (dq/receive! edn-settings:strict
+                                   :qname/local-sync)]
+        (is (= v {:foo :bar}))
+        (is (pos? (::dq/id (meta v))))
+        (is (= 1 (::dq/try-num (meta v))))
+        (dq/js-await [_ (dq/ack! edn-settings:strict
+                                 :qname/local-sync
+                                 v)]
+          (done))))))
+
 
 (deftest failing-msg
   (testing "failing msg"

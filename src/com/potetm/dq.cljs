@@ -1,6 +1,6 @@
 (ns com.potetm.dq
   (:require-macros
-    [com.potetm.dq :as pq])
+    [com.potetm.dq :as dq])
   (:require
     [com.potetm.indexeddb :as idb]
     [goog.object :as obj]))
@@ -10,31 +10,53 @@
   (str qname "-in-flight"))
 
 
-(defn compile-settings [{qs ::pq/queues :as s}]
+(defn compile-settings [{qs ::queues :as s}]
   (assoc s
     ::schema
-    (mapcat (fn [{qn ::pq/queue-name}]
-              [{:store/name (name qn)
-                :store/opts #js{"keyPath" "id"
-                                "autoIncrement" true}}
-               {:store/name (in-flight-q (name qn))
-                :store/opts #js{"keyPath" "id"}}])
-            qs)))
+    (into {}
+          (map (fn [{qn ::queue-name
+                     tx-opts ::tx-opts}]
+                 (let [tx-opts (or (clj->js tx-opts)
+                                   #js{"durability" "default"})]
+                   [qn [{:store/name (name qn)
+                         :store/opts #js{"keyPath" "id"
+                                         "autoIncrement" true}
+                         :tx/opts tx-opts}
+                        {:store/name (in-flight-q (name qn))
+                         :store/opts #js{"keyPath" "id"}
+                         :tx/opts tx-opts}]])))
+          qs)))
+
+
+(defn store-name [settings qn]
+  (get-in settings
+          [::schema qn 0 :store/name]))
+
+
+(defn tx-opts [settings qn]
+  (get-in settings
+          [::schema qn 0 :tx/opts]))
 
 
 (defn push-batch! [{w ::write :as settings} qname msgs]
-  (let [qname (name qname)]
-    (pq/js-await [db (idb/db settings)]
-      (let [tx (idb/tx db
-                       #js[qname]
-                       "readwrite")]
-        (js/Promise.all
-          (into-array
-            (map (fn [msg]
-                   (idb/put (idb/obj-store tx qname)
-                            #js{"msg" (w msg)
-                                "try-num" 0}))
-                 msgs)))))))
+  (let [sn (store-name settings
+                       qname)]
+    (dq/js-await [db (idb/db settings)]
+      (let [[tx p] (idb/tx db
+                           #js[sn]
+                           #js["readwrite"]
+                           (tx-opts settings
+                                    qname))]
+        (dq/js-await [ret (js/Promise.all
+                            (into-array
+                              (map (fn [msg]
+                                     (idb/put (idb/obj-store tx sn)
+                                              #js{"msg" (w msg)
+                                                  "try-num" 0}))
+                                   msgs)))]
+          (.then p
+                 (fn [_]
+                   ret)))))))
 
 
 (defn push! [settings qname msg]
@@ -44,29 +66,35 @@
 
 
 (defn receive-batch! [{r ::read :as settings} qname n]
-  (let [qname (name qname)
-        ifq (in-flight-q qname)]
-    (pq/js-await [db (idb/db settings)]
-      (let [tx (idb/tx db
-                       #js[qname ifq]
-                       "readwrite")
-            q-os (idb/obj-store tx qname)
+  (let [sn (store-name settings
+                       qname)
+        ifq (in-flight-q sn)]
+    (dq/js-await [db (idb/db settings)]
+      (let [[tx p] (idb/tx db
+                           #js[sn ifq]
+                           "readwrite"
+                           (tx-opts settings
+                                    qname))
+            q-os (idb/obj-store tx sn)
             ifq-os (idb/obj-store tx ifq)]
-        (pq/js-await [vs (idb/get-all q-os
+        (dq/js-await [vs (idb/get-all q-os
                                       nil
                                       n)]
           (when (seq vs)
-            (js/Promise.all
-              (.map vs
-                    (fn [v]
-                      (let [tn (inc (obj/get v "try-num"))]
-                        (pq/js-await [_ (idb/put ifq-os (doto v
-                                                          (obj/set "try-num"
-                                                                   tn)))
-                                      _ (idb/del q-os (obj/get v "id"))]
-                          (with-meta (r (obj/get v "msg"))
-                                     {::id (obj/get v "id")
-                                      ::try-num tn}))))))))))))
+            (dq/js-await [ret (js/Promise.all
+                                (.map vs
+                                      (fn [v]
+                                        (let [tn (inc (obj/get v "try-num"))]
+                                          (dq/js-await [_ (idb/put ifq-os (doto v
+                                                                            (obj/set "try-num"
+                                                                                     tn)))
+                                                        _ (idb/del q-os (obj/get v "id"))]
+                                            (with-meta (r (obj/get v "msg"))
+                                                       {::id (obj/get v "id")
+                                                        ::try-num tn}))))))]
+              (.then p
+                     (fn [_]
+                       ret)))))))))
 
 
 (defn receive! [settings qname]
@@ -76,17 +104,23 @@
 
 
 (defn ack-batch! [settings qname msgs]
-  (let [qname (name qname)
-        ifq (in-flight-q qname)]
-    (pq/js-await [db (idb/db settings)]
-      (let [tx (idb/tx db
-                       #js[qname ifq]
-                       "readwrite")
+  (let [sn (store-name settings
+                       qname)
+        ifq (in-flight-q sn)]
+    (dq/js-await [db (idb/db settings)]
+      (let [[tx p] (idb/tx db
+                           #js[sn ifq]
+                           "readwrite"
+                           (tx-opts settings
+                                    qname))
             ifq-os (idb/obj-store tx ifq)]
-        (js/Promise.all
-          (into-array (mapv (fn [msg]
-                              (idb/del ifq-os (::id (meta msg))))
-                            msgs)))))))
+        (dq/js-await [ret (js/Promise.all
+                            (into-array (mapv (fn [msg]
+                                                (idb/del ifq-os (::id (meta msg))))
+                                              msgs)))]
+          (.then p
+                 (fn [_]
+                   ret)))))))
 
 
 (defn ack! [settings qname msg]
@@ -98,27 +132,32 @@
 
 
 (defn fail-batch! [{w ::write :as settings} qname msgs]
-  (let [qname (name qname)
-        ifq (in-flight-q qname)]
-    (pq/js-await [db (idb/db settings)]
-      (let [tx (idb/tx db
-                       #js[qname ifq]
-                       "readwrite")
-            q-os (idb/obj-store tx qname)
+  (let [sn (store-name settings
+                       qname)
+        ifq (in-flight-q sn)]
+    (dq/js-await [db (idb/db settings)]
+      (let [[tx p] (idb/tx db
+                           #js[sn ifq]
+                           "readwrite"
+                           (tx-opts settings qname))
+            q-os (idb/obj-store tx sn)
             ifq-os (idb/obj-store tx ifq)]
-        (pq/js-await [_ (js/Promise.all
+        (dq/js-await [_ (js/Promise.all
                           (int-array (mapv (fn [m]
                                              (let [met (meta m)]
                                                (idb/put q-os
                                                         #js{"msg" (w m)
                                                             "id" (::id met)
                                                             "try-num" (::try-num met)})))
-                                           msgs)))]
-          (js/Promise.all
-            (into-array (mapv (fn [m]
-                                (idb/del ifq-os
-                                         (::id (meta m))))
-                              msgs))))))))
+                                           msgs)))
+                      ret (js/Promise.all
+                            (into-array (mapv (fn [m]
+                                                (idb/del ifq-os
+                                                         (::id (meta m))))
+                                              msgs)))]
+          (.then p
+                 (fn [_]
+                   ret)))))))
 
 
 (defn fail! [settings qname msg]
@@ -130,38 +169,50 @@
 
 
 (defn fail-all! [settings qname]
-  (let [qname (name qname)
-        ifq (in-flight-q qname)]
-    (pq/js-await [db (idb/db settings)]
-      (let [tx (idb/tx db
-                       #js[qname ifq]
-                       "readwrite")
-            q-os (idb/obj-store tx qname)
+  (let [sn (store-name settings
+                       qname)
+        ifq (in-flight-q sn)]
+    (dq/js-await [db (idb/db settings)]
+      (let [[tx p] (idb/tx db
+                           #js[sn ifq]
+                           "readwrite"
+                           (tx-opts settings
+                                    qname))
+            q-os (idb/obj-store tx sn)
             ifq-os (idb/obj-store tx ifq)]
-        (pq/js-await [msgs (idb/get-all ifq-os)
+        (dq/js-await [msgs (idb/get-all ifq-os)
                       _ (js/Promise.all
                           (.map msgs
                                 (fn [m]
                                   (idb/put q-os
-                                           m))))]
-          (js/Promise.all
-            (.map msgs
-                  (fn [m]
-                    (idb/del ifq-os
-                             (obj/get m "id"))))))))))
+                                           m))))
+                      ret (js/Promise.all
+                            (.map msgs
+                                  (fn [m]
+                                    (idb/del ifq-os
+                                             (obj/get m "id")))))]
+          (.then p
+                 (fn [_]
+                   ret)))))))
 
 
 (defn truncate! [settings qname]
-  (js/Promise.
-    (fn [yes no]
-      (pq/js-await [db (idb/db settings)]
-        (let [qname (name qname)
-              tx (idb/tx db
-                         #js[qname]
-                         "readwrite")
-              q-os (idb/obj-store tx qname)
-              req (.clear q-os)]
-          (idb/promise-handlers yes no req))))))
+  (let [qname (store-name settings
+                          qname)]
+    (dq/js-await [db (idb/db settings)]
+      (let [[tx p] (idb/tx db
+                           #js[qname]
+                           "readwrite"
+                           (tx-opts settings
+                                    qname))
+            q-os (idb/obj-store tx qname)]
+        (dq/js-await [ret (js/Promise.
+                            (fn [yes no]
+                              (let [req (.clear q-os)]
+                                (idb/promise-handlers yes no req))))]
+          (.then p
+                 (fn [_]
+                   ret)))))))
 
 
 (comment

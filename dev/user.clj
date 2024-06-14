@@ -29,6 +29,7 @@
 
 (comment
   (refresh)
+  (start)
 
   (shadow/repl :dq)
   (shadow/watch-set-autobuild! :dq false)
