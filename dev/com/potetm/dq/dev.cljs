@@ -2,8 +2,11 @@
   (:require-macros
     [com.potetm.dq.dev :as dev])
   (:require
+    [cljs.core.async :as a]
+    [cljs.core.async.interop :as ai]
     [cljs.test :as t]
     [cljs-test-display.core :as ctd]
+    [clojure.edn :as edn]
     [com.potetm.dq :as dq]
     [com.potetm.indexeddb :as idb]
     [com.potetm.dq-test :as dqt]
@@ -14,18 +17,68 @@
   (t/run-tests (ctd/init! "test-root")
                'com.potetm.dq-test))
 
+
 (comment
   (run)
 
-  (require 'clojure.edn)
   (def msg (atom {:foo 'bar}))
-  @(def settings (dq/compile-settings
-                   {::dq/read clojure.edn/read-string
-                    ::dq/write pr-str
-                    ::dq/db-name "foo"
-                    ::dq/queues [{::dq/queue-name :qname/local-sync
-                                  ::dq/tx-opts {"durability" "default"}}
-                                 {::dq/queue-name :qname/remote-sync}]}))
+  @(def settings dqt/edn-settings)
+
+  (def settings
+    {::dq/read clojure.edn/read-string
+     ::dq/write pr-str
+     ::dq/db-name "testdb"
+     ::dq/queues {:qname/local-sync {}}})
+
+  (def settings
+    {::dq/read edn/read-string
+     ::dq/write pr-str
+     ::dq/db-name "testdb"
+     ::dq/queues {:qname/local-sync {}}})
+
+
+  (dq/js-await [_ (dq/push! settings
+                            :qname/local-sync
+                            {:foo :bar})
+                msg (dq/receive! settings
+                                 :qname/local-sync)]
+    (try
+      (println msg)
+      (catch js/Error e
+        (dq/fail! settings
+                  :qname/local-sync
+                  msg)
+        (throw e)))
+    (dq/js-await [_ (dq/ack! settings
+                             :qname/local-sync
+                             msg)]
+      (println "All done!")))
+
+  (def settings
+    {::dq/read edn/read-string
+     ::dq/write pr-str
+     ::dq/db-name "testdb"
+     ::dq/queues {:qname/local-sync {}}})
+
+  (a/go
+    (ai/<p! (dq/push! settings
+                      :qname/local-sync
+                      {:foo :bar}))
+    (let [msg (ai/<p! (dq/receive! settings
+                                   :qname/local-sync))]
+      (try
+        (println msg)
+        (ai/<p! (dq/ack! settings
+                         :qname/local-sync
+                         msg))
+        (println "All done!")
+        (catch js/Error e
+          (ai/<p! (dq/fail! settings
+                            :qname/local-sync
+                            msg))))))
+
+
+
 
 
 

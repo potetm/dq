@@ -1,8 +1,7 @@
 (ns com.potetm.indexeddb
   (:refer-clojure :exclude [get])
   (:require
-    [com.potetm.dq :as-alias dq]
-    [goog.object :as obj]))
+    [com.potetm.dq :as-alias dq]))
 
 
 ;; Story time:
@@ -29,8 +28,16 @@
                                     {::error e})))))
 
 
+(defn store-name [qname]
+  (name qname))
+
+
+(defn in-flight-store-name [store-name]
+  (str store-name ":if"))
+
+
 (defn db [{dbn ::dq/db-name
-           schema ::dq/schema}]
+           qs ::dq/queues}]
   (js/Promise.
     (fn [yes no]
       (let [req (js/indexedDB.open dbn 1)]
@@ -38,14 +45,19 @@
                            "upgradeneeded"
                            (fn []
                              (let [db (.-result req)]
-                               (doseq [[_qn stores] schema
-                                       {sn :store/name
-                                        opts :store/opts} stores]
-                                 (when-not (.contains (.-objectStoreNames db)
-                                                      sn)
-                                   (.createObjectStore db
-                                                       sn
-                                                       opts))))))
+                               (doseq [[qn _opts] qs]
+                                 (let [sn (store-name qn)
+                                       ifsn (in-flight-store-name sn)
+                                       osns (.-objectStoreNames db)]
+                                   (when-not (.contains osns sn)
+                                     (.createObjectStore db
+                                                         sn
+                                                         #js{"keyPath" "id"
+                                                             "autoIncrement" true}))
+                                   (when-not (.contains osns ifsn)
+                                     (.createObjectStore db
+                                                         ifsn
+                                                         #js{"keyPath" "id"})))))))
         (promise-handlers yes no req)))))
 
 

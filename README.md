@@ -8,10 +8,10 @@ Features:
     * Retries will be delivered prior to new messages
 * At least once or exactly once delivery
 * "relaxed" durability by default
-    * Optional ["strict"](https://developer.mozilla.org/en-US/docs/Web/API/IDBDatabase/transaction#options) durability
+    * Optional ["strict"](https://developer.mozilla.org/en-US/docs/Web/API/IDBDatabase/transaction#options) (i.e. guaranteed) durability
 * Zero dependencies
 * Promise-based API
-    * No core.async, no dependencies, but integrates with core.async easily
+    * No core.async, but integrates with core.async easily (see below)
 
 ## Use Cases
 
@@ -24,67 +24,81 @@ Features:
 Using the provided `js-await` macro:
 
 ```clj
+(ns my.ns
+  (:require
+    [clojure.edn :as edn]
+    [com.potetm.dq :as dq]))
+
+
 (def settings
-  (dq/compile-settings
-    {::dq/read edn/read-string
-     ::dq/write pr-str
-     ::dq/db-name "testdb"
-     ::dq/queues [{::dq/queue-name :qname/local-sync}]}))
+  {::dq/read edn/read-string
+   ::dq/write pr-str
+   ::dq/db-name "testdb"
+   ::dq/queues {:qname/local-sync {}}})
 
 
-(js-await [_ (dq/push! settings
-                       :qname/local-sync
-                       {:foo :bar})
-           msg (dq/receive! settings
-                            :qname/local-sync)
-           _ (do-async-stuff msg)]
-  (do-sync-stuff msg)
-  (js-await [_ (dq/ack! settings
-                        :qname/local-sync
-                        msg)]
-    (js/console.log "All done!"))
-  (catch error
-         (dq/fail! settings
-                   :qname/local-sync
-                   msg)))
+(dq/js-await [_ (dq/push! settings
+                          :qname/local-sync
+                          {:foo :bar})
+              msg (dq/receive! settings
+                               :qname/local-sync)]
+  (try
+    (println msg)
+    (catch js/Error e
+      (dq/fail! settings
+                :qname/local-sync
+                msg)
+      (throw e)))
+  (dq/js-await [_ (dq/ack! settings
+                           :qname/local-sync
+                           msg)]
+    (println "All done!")))
 ```
 
 
 Using core.async (and the [`core.async.interop/<p!` macro](https://clojurescript.org/guides/promise-interop#using-promises-with-core-async)):
 
 ```clj
-(def settings
-  (dq/compile-settings
-    {::dq/read edn/read-string
-     ::dq/write pr-str
-     ::dq/db-name "testdb"
-     ::dq/queues [{::dq/queue-name :qname/local-sync}]}))
+(ns my.ns
+  (:require
+    [cljs.core.async :as a]
+    [cljs.core.async.interop :as ai]
+    [clojure.edn :as edn]
+    [com.potetm.dq :as dq]))
 
-(go
-  (<p! (dq/push! settings
-                 :qname/local-sync
-                 {:foo :bar}))
-  (let [msg (<p! (dq/receive! settings
-                              :qname/local-sync))]
+
+(def settings
+  {::dq/read edn/read-string
+   ::dq/write pr-str
+   ::dq/db-name "testdb"
+   ::dq/queues {:qname/local-sync {}}})
+
+
+(a/go
+  (ai/<p! (dq/push! settings
+                    :qname/local-sync
+                    {:foo :bar}))
+  (let [msg (ai/<p! (dq/receive! settings
+                                 :qname/local-sync))]
     (try
-      (<! (do-async-stuff msg))
-      (do-sync-stuff msg)
-      (dq/ack! settings
-               :qname/local-sync
-               v)
+      (println msg)
+      (ai/<p! (dq/ack! settings
+                       :qname/local-sync
+                       msg))
+      (println "All done!")
       (catch js/Error e
-        (dq/fail! settings
-                  :qname/local-sync
-                  msg)))))
+        (ai/<p! (dq/fail! settings
+                          :qname/local-sync
+                          msg))))))
 ```
 
 ## Settings
 * `::dq/read` -  A function that takes a serialized string and returns a Clojurescript data structure. The return value must implement `IMeta`.
 * `::dq/write` - A function that takes a Clojurescript data structure and returns a serialized string.
 * `::dq/db-name` - A string that will be the name of the IndexedDB Database.
-* `::dq/queues` - A sequence of queue settings
-* `::dq/queue-name` - A keyword name for your queue
-* `::dq/tx-opts` - A Clojurescript hashmap of [Transaction Options](https://developer.mozilla.org/en-US/docs/Web/API/IDBDatabase/transaction#options) (e.g. `{"durability" "strict"}` or `{"durability" "default"}`
+* `::dq/queues` - A hashmap of queue-name -> settings
+* Queue Settings
+    * `::dq/tx-opts` - A Clojurescript hashmap of [Transaction Options](https://developer.mozilla.org/en-US/docs/Web/API/IDBDatabase/transaction#options) (e.g. `{"durability" "strict"}` or `{"durability" "default"}`)
 
 ## Usage Notes
 ### Durability

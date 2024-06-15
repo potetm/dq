@@ -29,6 +29,7 @@
 
 (comment
   (refresh)
+  (clean)
   (start)
 
   (shadow/repl :dq)
