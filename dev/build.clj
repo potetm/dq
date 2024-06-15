@@ -10,7 +10,7 @@
 
 
 (def lib 'com.potetm/dq)
-(def version "1.0.0")
+(def version "1.0.1")
 (def jar-file (str "target/dq-" version ".jar"))
 (def sources ["src"])
 (def classes "target/classes")
@@ -41,8 +41,8 @@
                   :sign-releases? false
                   :artifact jar-file
                   :pom-file (str classes "/META-INF/maven/com.potetm/dq/pom.xml")
-                  :repositories (edn/read-string (slurp (str (System/getProperty "user.home")
-                                                             "/.clojars")))}))
+                  :repository (edn/read-string (slurp (str (System/getProperty "user.home")
+                                                           "/.clojars")))}))
 
 
 (defn run [& _]
@@ -53,4 +53,6 @@
 (comment
   (clean)
   (jar)
+  (deploy)
+
   (run))

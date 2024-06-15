@@ -19,6 +19,17 @@ Features:
 * Immediate, durable writes that you later sync to the server in the background
 * Any event-based activity where you don't want to lose data due to a browser refresh
 
+## Latest Version
+Deps
+```clj
+com.potetm/dq {:mvn/version "1.0.1"}
+```
+
+Lein
+```clj
+[com.potetm/dq "1.0.1"]
+```
+
 ## Examples
 
 Using the provided `js-await` macro:
