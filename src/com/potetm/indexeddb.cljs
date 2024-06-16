@@ -37,7 +37,8 @@
 
 
 (defn db [{dbn ::dq/db-name
-           qs ::dq/queues}]
+           qs ::dq/queues
+           as ::dq/additional-stores}]
   (js/Promise.
     (fn [yes no]
       (let [req (js/indexedDB.open dbn 1)]
@@ -57,7 +58,13 @@
                                    (when-not (.contains osns ifsn)
                                      (.createObjectStore db
                                                          ifsn
-                                                         #js{"keyPath" "id"})))))))
+                                                         #js{"keyPath" "id"}))
+                                   (doseq [{sn ::dq/store-name
+                                            opts ::dq/store-opts} as]
+                                     (when-not (.contains osns sn)
+                                       (.createObjectStore db
+                                                           sn
+                                                           opts))))))))
         (promise-handlers yes no req)))))
 
 

@@ -34,6 +34,17 @@
    ::dq/queues {:qname/local-sync {}}})
 
 
+(def additional-stores-settings
+  {::dq/read (let [r (t/reader :json)]
+               #(t/read r %))
+   ::dq/write (let [w (t/writer :json)]
+                #(t/write w %))
+   ::dq/db-name "additional-stores"
+   ::dq/queues {:qname/local-sync {}}
+   ::dq/additional-stores [{::dq/store-name "other-store"
+                            ::dq/store-opts #js{"keyPath" "id"}}]})
+
+
 (defn del-db [db-name]
   (js/Promise.
     (fn [yes no]
@@ -56,7 +67,8 @@
                          (async done
                            (dq/js-await [_ (del-db (::dq/db-name edn-settings))
                                          _ (del-db (::dq/db-name edn-settings:strict))
-                                         _ (del-db (::dq/db-name transit-settings))]
+                                         _ (del-db (::dq/db-name transit-settings))
+                                         _ (del-db (::dq/db-name additional-stores-settings))]
                              (done))))})
 
 (deftest hello
@@ -93,7 +105,7 @@
         (dq/js-await [_ (dq/ack! transit-settings
                                  :qname/local-sync
                                  v)
-                      vs (get-all edn-settings
+                      vs (get-all transit-settings
                                   :qname/local-sync)]
           (is (= 0 (count vs)))
           (done))))))
@@ -138,6 +150,36 @@
                                     :qname/local-sync))]
             (is (= 0 (count vs)))
             (done)))))))
+
+
+(deftest hello:additional-stores
+  (testing "it works!"
+    (async done
+      (dq/js-await [_ (dq/push! additional-stores-settings
+                                :qname/local-sync
+                                {:foo :bar})
+                    v (dq/receive! additional-stores-settings
+                                   :qname/local-sync)]
+        (is (= v {:foo :bar}))
+        (is (pos? (::dq/id (meta v))))
+        (is (= 1 (::dq/try-num (meta v))))
+        (dq/js-await [_ (dq/ack! additional-stores-settings
+                                 :qname/local-sync
+                                 v)
+                      vs (get-all additional-stores-settings
+                                  :qname/local-sync)]
+          (is (= 0 (count vs)))
+          (dq/js-await [db (idb/db additional-stores-settings)]
+            (let [[tx p] (idb/tx db
+                                 #js["other-store"]
+                                 "readwrite")
+                  os (idb/obj-store tx "other-store")]
+              (dq/js-await [_ (idb/put os #js{"id" 1
+                                              "foo" "bar"})
+                            v (idb/get os 1)]
+                (is (js/goog.object.equals v #js{"id" 1
+                                                 "foo" "bar"}))
+                (done)))))))))
 
 
 (deftest failing-msg

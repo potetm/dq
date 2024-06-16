@@ -20,6 +20,10 @@
 
 (comment
   (run)
+  (js/goog.object.equals #js{"id" 1
+                             "foo" "bar"}
+                         #js{"id" 1
+                             "foo" "bar"})
 
   (def msg (atom {:foo 'bar}))
   @(def settings dqt/edn-settings)

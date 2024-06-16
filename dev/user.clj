@@ -2,7 +2,8 @@
   (:require
     [clojure.java.io :as io]
     [shadow.cljs.devtools.api :as shadow]
-    [shadow.cljs.devtools.server :as shadow-server])
+    [shadow.cljs.devtools.server :as shadow-server]
+    [shadow.cljs.devtools.server.runtime :as rt])
   (:import
     (java.io File)))
 
@@ -18,7 +19,7 @@
   (shadow/dev :dq))
 
 (defn stop []
-  (when (shadow/get-runtime!)
+  (when (rt/get-instance)
     (shadow/stop-worker :dq))
   (shadow-server/stop!))
 
