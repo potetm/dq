@@ -22,12 +22,12 @@ Features:
 ## Latest Version
 Deps
 ```clj
-com.potetm/dq {:mvn/version "1.0.2"}
+com.potetm/dq {:mvn/version "1.0.3"}
 ```
 
 Lein
 ```clj
-[com.potetm/dq "1.0.2"]
+[com.potetm/dq "1.0.3"]
 ```
 
 ## Examples
