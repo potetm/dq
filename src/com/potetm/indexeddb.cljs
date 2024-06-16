@@ -37,11 +37,13 @@
 
 
 (defn db [{dbn ::dq/db-name
+           v ::dq/db-version
            qs ::dq/queues
-           as ::dq/additional-stores}]
+           as ::dq/additional-stores
+           :or {v 1}}]
   (js/Promise.
     (fn [yes no]
-      (let [req (js/indexedDB.open dbn 1)]
+      (let [req (js/indexedDB.open dbn v)]
         (.addEventListener req
                            "upgradeneeded"
                            (fn []
