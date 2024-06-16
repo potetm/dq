@@ -10,7 +10,7 @@
 
 
 (def lib 'com.potetm/dq)
-(def version "1.0.1")
+(def version "1.0.2")
 (def jar-file (str "target/dq-" version ".jar"))
 (def sources ["src"])
 (def classes "target/classes")
@@ -55,4 +55,5 @@
   (jar)
   (deploy)
 
+  ;; Did you update the README?
   (run))

@@ -29,7 +29,7 @@
 
 
 (defn store-name [qname]
-  (name qname))
+  (str qname))
 
 
 (defn in-flight-store-name [store-name]

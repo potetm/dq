@@ -54,7 +54,7 @@
 
 (defn get-all [settings qname]
   (dq/js-await [db (idb/db settings)]
-    (let [qname (name qname)
+    (let [qname (idb/store-name qname)
           [tx _p] (idb/tx db
                           #js[qname]
                           "readonly")
