@@ -10,7 +10,7 @@
 
 
 (def lib 'com.potetm/dq)
-(def version "1.0.3")
+(def version "1.0.4")
 (def jar-file (str "target/dq-" version ".jar"))
 (def sources ["src"])
 (def classes "target/classes")
