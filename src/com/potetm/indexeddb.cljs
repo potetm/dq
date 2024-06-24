@@ -47,11 +47,11 @@
         (.addEventListener req
                            "upgradeneeded"
                            (fn []
-                             (let [db (.-result req)]
+                             (let [db (.-result req)
+                                   osns (.-objectStoreNames db)]
                                (doseq [[qn _opts] qs]
                                  (let [sn (store-name qn)
-                                       ifsn (in-flight-store-name sn)
-                                       osns (.-objectStoreNames db)]
+                                       ifsn (in-flight-store-name sn)]
                                    (when-not (.contains osns sn)
                                      (.createObjectStore db
                                                          sn
@@ -60,13 +60,13 @@
                                    (when-not (.contains osns ifsn)
                                      (.createObjectStore db
                                                          ifsn
-                                                         #js{"keyPath" "id"}))
-                                   (doseq [{sn ::dq/store-name
-                                            opts ::dq/store-opts} as]
-                                     (when-not (.contains osns sn)
-                                       (.createObjectStore db
-                                                           sn
-                                                           opts))))))))
+                                                         #js{"keyPath" "id"}))))
+                               (doseq [{sn ::dq/store-name
+                                        opts ::dq/store-opts} as]
+                                 (when-not (.contains osns sn)
+                                   (.createObjectStore db
+                                                       sn
+                                                       opts))))))
         (promise-handlers yes no req)))))
 
 

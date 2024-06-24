@@ -45,6 +45,16 @@
                             ::dq/store-opts #js{"keyPath" "id"}}]})
 
 
+(def additional-stores-settings-no-q
+  {::dq/read (let [r (t/reader :json)]
+               #(t/read r %))
+   ::dq/write (let [w (t/writer :json)]
+                #(t/write w %))
+   ::dq/db-name "additional-stores-no-q"
+   ::dq/additional-stores [{::dq/store-name "other-store"
+                            ::dq/store-opts #js{"keyPath" "id"}}]})
+
+
 (defn del-db [db-name]
   (js/Promise.
     (fn [yes no]
@@ -68,7 +78,8 @@
                            (dq/js-await [_ (del-db (::dq/db-name edn-settings))
                                          _ (del-db (::dq/db-name edn-settings:strict))
                                          _ (del-db (::dq/db-name transit-settings))
-                                         _ (del-db (::dq/db-name additional-stores-settings))]
+                                         _ (del-db (::dq/db-name additional-stores-settings))
+                                         _ (del-db (::dq/db-name additional-stores-settings-no-q))]
                              (done))))})
 
 (deftest hello
@@ -180,6 +191,22 @@
                 (is (js/goog.object.equals v #js{"id" 1
                                                  "foo" "bar"}))
                 (done)))))))))
+
+
+(deftest hello:additional-stores-no-q
+  (testing "it works!"
+    (async done
+      (dq/js-await [db (idb/db additional-stores-settings-no-q)]
+        (let [[tx p] (idb/tx db
+                             #js["other-store"]
+                             "readwrite")
+              os (idb/obj-store tx "other-store")]
+          (dq/js-await [_ (idb/put os #js{"id" 1
+                                          "foo" "bar"})
+                        v (idb/get os 1)]
+            (is (js/goog.object.equals v #js{"id" 1
+                                             "foo" "bar"}))
+            (done)))))))
 
 
 (deftest failing-msg
